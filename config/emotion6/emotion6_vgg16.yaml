@@ -1,0 +1,22 @@
+dataset_params:
+  dataset_name: "Emotion6_vgg16_hjy"
+  data_dir: /home/ubuntu12/wwc/ACPNN_AAAI17/data
+  class_num: 7
+
+model_params:
+  backbone: ACPNN
+          # ACPNN
+          # BCPNN
+          # CPNN
+  v: 5
+  num_dim: 280
+  n_hidden: 100
+  n_latent: 10
+
+train_params:
+  max_epochs: 1000
+  lr: 0.0002
+  batch_size: 64
+  dataloader_workers: 8
+  save_ckpt_freq: 1
+

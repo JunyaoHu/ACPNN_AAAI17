@@ -1,9 +1,10 @@
 # sh ./scripts/train.sh
 
 EXP_NAME=demo_exp
-CONFIG_PATH=./config/FI/FI_res50.yaml
+# CONFIG_PATH=./config/emotion6/emotion6_vgg16.yaml
+CONFIG_PATH=./config/emotion6/emotion6_sentibank.yaml
 RESUME_PATH=''
-SEED=1234
+SEED=42
 
 CUDA_VISIBLE_DEVICES=0 \
 python ./scripts/train.py \

@@ -4,16 +4,19 @@ import argparse
 
 import torch
 import torch.backends.cudnn as cudnn
-from torchvision import models
+from torch.utils.data import DataLoader, random_split
+from dataset.dataset import MatDataset
+from model.CPNN import CPNN
+from metrics.metrics import score
 
 import yaml
 from datetime import datetime
 
-from model.CPNN import ACPNN
-from model.CPNN import BCPNN
-
 from utils.seed import setup_seed
 from utils.logger import Logger
+
+import warnings
+warnings.filterwarnings("ignore", category=UserWarning)
 
 if __name__ == '__main__':
     cudnn.enabled = True
@@ -21,11 +24,10 @@ if __name__ == '__main__':
     
     parser = argparse.ArgumentParser(description="EmoRank")
     parser.add_argument('--exp_name', type=str, default='demo_exp', help='training experiment name')
-    parser.add_argument('--config_path', type=str, default='./config/FI/FI_res50.yaml', help='training config yaml file path')
+    parser.add_argument('--config_path', type=str, default='./config/FI/FI_vgg16.yaml', help='training config yaml file path')
     parser.add_argument('--resume_path', type=str, default='', help='resume model path')
     parser.add_argument('--log_path', type=str, default='./logs/training', help='training log saving path')
     parser.add_argument('--seed', type=int, default='1234', help='random seed')
-    # parser.add_argument("--fp16", default=False)
     args = parser.parse_args()
     
     print("============== start initialization ==============")
@@ -51,21 +53,137 @@ if __name__ == '__main__':
     sys.stdout = Logger(log_txt, sys.stdout)
     
     print(config)
+        
+    print("============== data initialization ==============")
+    
+    dataset_params = config["dataset_params"]
+    class_num = dataset_params["class_num"]
+
+    dataset = MatDataset(
+        dataset_name=dataset_params["dataset_name"],
+        path=dataset_params["data_dir"]
+    )
+    
+    print(len(dataset))
+    
+    train_size = int(0.8 * len(dataset))
+    val_size = len(dataset) - train_size
+    
+    # 使用random_split函数进行拆分
+    train_dataset, val_dataset = random_split(dataset, [train_size, val_size])
+    
+    print(len(train_dataset))
+    print(len(val_dataset))
     
     print("============== model initialization ==============")
     
-    model = EmoRank(config)
-    model.cuda()
+    model_params = config['model_params']
+    
+    backbone = model_params["backbone"]
+    if backbone == "ACPNN":
+        mode = 'augment'
+    elif backbone == "BCPNN":
+        mode = 'binary'
+    elif backbone == "CPNN":
+        mode = 'none'
+    else:
+        NotImplementedError()
+    
+    v          = model_params["v"]
+    num_dim    = model_params["num_dim"]
+    n_hidden   = model_params["n_hidden"]
+    n_latent   = model_params["n_latent"]
+    
+    model = CPNN(
+        mode=mode, 
+        v=v, 
+        n_hidden=n_hidden, 
+        n_latent=n_latent,
+        n_feature=num_dim, 
+        n_output=class_num,
+    )
     
     from utils.parameter import count_parameters
     count_parameters(model)
     
-    if args.resume_path:
-        print(f"resume from: {args.log_path}")
-        checkpoint = torch.load(args.log_path)
-        model.load_state_dict(checkpoint, strict=True)
-        
-    print("============== data initialization ==============")
+    model = model.cuda()
+    
+    # if args.resume_path:
+    #     print(f"resume from: {args.log_path}")
+    #     checkpoint = torch.load(args.log_path)
+    #     model.load_state_dict(checkpoint, strict=True)
     
     print("============== start training ==============")
+    
+    train_params = config["train_params"]
+    
+    # 创建DataLoader
+    train_loader = DataLoader(
+        train_dataset, 
+        batch_size=train_params["batch_size"], 
+        num_workers=train_params["dataloader_workers"], 
+        shuffle=True
+    )
+    val_loader = DataLoader(
+        val_dataset, 
+        batch_size=train_params["batch_size"], 
+        num_workers=train_params["dataloader_workers"], 
+        shuffle=False
+    )
+    
+    # for batch in train_loader:
+    #     print("Training batch:", batch[0].shape, batch[1].shape)
+    #     break
+
+    # for batch in val_loader:
+    #     print("Validation batch:", batch[0].shape, batch[1].shape)
+    #     break
+
+    optimizer = torch.optim.Adam(model.parameters(), lr=train_params['lr'])
+    epochs = train_params['max_epochs']
+    every_epoch_check = train_params['save_ckpt_freq']
+    
+    for i_epoch in range(epochs):
+        
+        for i_iter, batch in enumerate(train_loader):
+            optimizer.zero_grad()
+            
+            X, y = batch
+            bs, _ = X.shape
+            
+            if mode == 'augment': # ACPNN
+                one_hot = torch.nn.functional.one_hot(torch.argmax(y, axis=1), class_num)
+                X = torch.repeat_interleave(X, v, 0)
+                y = torch.repeat_interleave(y, v, 0)
+                one_hot = torch.repeat_interleave(one_hot, v, 0)
+                v_ = torch.reshape(torch.tile(torch.tensor([1 / (i + 1) for i in range(v)]), [bs]), (-1, 1))
+                y += y * one_hot * v_
+
+            loss = model.loss(X.cuda(), y.cuda())
+            loss.backward()
+            optimizer.step()
+            
+            if i_iter == 0:
+                print(f"[epoch: {i_epoch:04}] loss: {loss.item():.10f}", end=' ')
+        
+        ################ valid #############
+        
+        y_all = []
+        y_pred_all = []
+        
+        for i_iter, batch in enumerate(val_loader):
+            X, y = batch
+            with torch.no_grad():  
+                y_pred = model(X.cuda()).cpu()
+            
+            y_all.append(y)
+            y_pred_all.append(y_pred)
+        
+        y_all = torch.cat(y_all)
+        y_pred_all = torch.cat(y_pred_all)
+        metrics = score(y_all.numpy(), y_pred_all.numpy())
+        # print(f"[epoch: {i_epoch}]", end=' ')
+        for metric in metrics:
+            print(f"{metric:.4f}", end=' ')
+        print()
     

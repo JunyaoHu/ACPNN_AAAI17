@@ -7,8 +7,9 @@ This is an implementation repository of ACPNN/BCPNN (in development).
 ## Installation
 
 ```bash
-conda create -n ACPNN python=3.8
+conda create -n ACPNN python=3.10
 conda install pytorch==1.11.0 torchvision==0.12.0 torchaudio==0.11.0 cudatoolkit=11.3 -c pytorch
+pip install pyyaml scikit-learn keras
 
 git clone https://github.com/JunyaoHu/ACPNN_AAAI17
 cd ACPNN_AAAI17

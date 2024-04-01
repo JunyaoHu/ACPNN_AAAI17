@@ -1,2 +1,4 @@
 PyLDL
 ACPNN.egg-info
+logs/training/*
+**/__pycache__/**
