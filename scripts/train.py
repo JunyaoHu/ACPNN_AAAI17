@@ -151,13 +151,42 @@ if __name__ == '__main__':
             X, y = batch
             bs, _ = X.shape
             
-            if mode == 'augment': # ACPNN
-                one_hot = torch.nn.functional.one_hot(torch.argmax(y, axis=1), class_num)
-                X = torch.repeat_interleave(X, v, 0)
-                y = torch.repeat_interleave(y, v, 0)
-                one_hot = torch.repeat_interleave(one_hot, v, 0)
-                v_ = torch.reshape(torch.tile(torch.tensor([1 / (i + 1) for i in range(v)]), [bs]), (-1, 1))
-                y += y * one_hot * v_
+            if mode == 'augment':
+                new_X = []
+                new_y = []
+                m = y.shape[1]
+                for i in range(X.shape[0]):
+                    threshold = torch.mean(y[i]).item()
+                    mask = y[i] > threshold
+                    filtered_values = y[i][mask]
+                    indices = torch.nonzero(mask, as_tuple=False).view(-1)
+                    filtered_values = filtered_values.numpy()
+                    k = 0
+                    v = len(indices)
+                    identity_matrix = torch.eye(m)
+                    zero_matrix = torch.zeros(m, m)
+                    for j in range(v):
+                        if k > 4:
+                            continue
+                        rou_j = filtered_values[j]
+                        indices_j = torch.tensor([[indices[k], indices[k]]], dtype=torch.long)  # indices should be a 2D tensor
+                        # Specify the values to update
+                        updates = torch.tensor([rou_j / v], dtype=y.dtype)
+                        # Use torch.scatter_ to update the tensor
+                        zero_matrix[k,k]=rou_j / v
+                        updated_tensor = zero_matrix
+                        plus = updated_tensor + identity_matrix
+                        vector_as_matrix = y[i].view(1, -1)
+                        # Perform matrix multiplication
+                        result_matrix = torch.mm(vector_as_matrix, plus)
+                        new_X.append(X[i])
+                        new_y.append(result_matrix)
+                        k += 1
+                new_X = torch.stack(new_X, dim=0)
+                new_y = torch.stack(new_y, dim=0).squeeze(1)
+                y = torch.cat((y, new_y), dim=0)
+                X = torch.cat((X, new_X), dim=0)
+
 
             loss = model.loss(X.cuda(), y.cuda())
             loss.backward()

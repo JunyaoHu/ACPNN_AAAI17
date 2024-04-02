@@ -180,6 +180,7 @@ total_len = len(dataset1)+len(dataset2)
 
 from torchvision import models
 backbone = models.vgg16(pretrained=True)
+# backbone = models.vgg19_bn(pretrained=True)
 # backbone = models.vgg19(pretrained=True)
 backbone.cuda()
 backbone.eval()
